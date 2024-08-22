@@ -2,6 +2,7 @@
 using AuctionService.DTOs;
 using AuctionService.Entities;
 using AutoMapper;
+using AutoMapper.QueryableExtensions;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 
@@ -15,10 +16,14 @@ public class AuctionsController(AuctionDbContext dbContext, IMapper mapper) : Co
     private readonly IMapper _mapper = mapper;
 
     [HttpGet]
-    public async Task<ActionResult<List<AuctionDto>>> GetAuctions()
+    public async Task<ActionResult<List<AuctionDto>>> GetAuctions(string? date)
     {
-        var result = await _context.Auctions.ToListAsync();
-        return _mapper.Map<List<AuctionDto>>(result);
+        var query = _context.Auctions.OrderBy(x => x.Item.Make).AsQueryable();
+        if (!string.IsNullOrEmpty(date))
+        {
+            query = query.Where(x => x.UpdatedAt.CompareTo(DateTime.Parse(date).ToUniversalTime()) > 0);
+        }
+        return await query.ProjectTo<AuctionDto>(_mapper.ConfigurationProvider).ToListAsync();
     }
 
     [HttpGet("{id}")]
@@ -69,7 +74,7 @@ public class AuctionsController(AuctionDbContext dbContext, IMapper mapper) : Co
         if (auction == null) return NotFound();
 
         _context.Auctions.Remove(auction);
-        
+
         var result = await _context.SaveChangesAsync() > 0;
         if (!result) return BadRequest("Couldn't delete the data!");
 
