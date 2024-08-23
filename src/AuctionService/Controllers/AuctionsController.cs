@@ -3,6 +3,8 @@ using AuctionService.DTOs;
 using AuctionService.Entities;
 using AutoMapper;
 using AutoMapper.QueryableExtensions;
+using Contracts;
+using MassTransit;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 
@@ -10,10 +12,11 @@ namespace AuctionService.Controllers;
 
 [ApiController]
 [Route("api/auctions")]
-public class AuctionsController(AuctionDbContext dbContext, IMapper mapper) : ControllerBase
+public class AuctionsController(AuctionDbContext dbContext, IMapper mapper, IPublishEndpoint publishEndpoint) : ControllerBase
 {
     private readonly AuctionDbContext _context = dbContext;
     private readonly IMapper _mapper = mapper;
+    private readonly IPublishEndpoint _publishEndpoint = publishEndpoint;
 
     [HttpGet]
     public async Task<ActionResult<List<AuctionDto>>> GetAuctions(string? date)
@@ -43,10 +46,12 @@ public class AuctionsController(AuctionDbContext dbContext, IMapper mapper) : Co
         auction.Seller = "seller";
         _context.Auctions.Add(auction);
 
+        var newAuction = _mapper.Map<AuctionDto>(auction);
+        await _publishEndpoint.Publish(_mapper.Map<AuctionCreated>(newAuction));
+
         var result = await _context.SaveChangesAsync() > 0;
         if (!result) return BadRequest("Couldn't save the data!");
-
-        return CreatedAtAction(nameof(GetAuctionById), new { auction.Id }, _mapper.Map<AuctionDto>(auction));
+        return CreatedAtAction(nameof(GetAuctionById), new { auction.Id }, newAuction);
     }
 
     [HttpPut("{id}")]
@@ -61,6 +66,7 @@ public class AuctionsController(AuctionDbContext dbContext, IMapper mapper) : Co
         auction.Item.Year = dto.Year ?? auction.Item.Year;
         auction.Item.Color = dto.Color ?? auction.Item.Color;
 
+        await _publishEndpoint.Publish(_mapper.Map<AuctionUpdated>(auction));
         var result = await _context.SaveChangesAsync() > 0;
         if (!result) return BadRequest("Couldn't update the data!");
 
@@ -75,6 +81,7 @@ public class AuctionsController(AuctionDbContext dbContext, IMapper mapper) : Co
 
         _context.Auctions.Remove(auction);
 
+        await _publishEndpoint.Publish<AuctionDeleted>(new { Id = auction.Id.ToString() });
         var result = await _context.SaveChangesAsync() > 0;
         if (!result) return BadRequest("Couldn't delete the data!");
 
